@@ -6,14 +6,16 @@ import { useEffect, useState } from 'react'
 import Image from 'next/image'
 import Card from '@/components/Card'
 
-// Type definitions (Unchanged)
+// Type for our 'public.users' table
 type PublicUserProfile = {
-  id: number
+  id: number // <-- The ID we want to display!
   auth_id: string
   full_name: string
   avatar_url: string | null
   email: string 
 }
+
+// Type for user skill (Unchanged)
 type UserSkill = {
   id: number
   user_id: number
@@ -30,16 +32,16 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true)
   const [newSkill, setNewSkill] = useState('')
 
-  // useEffect and core logic (Unchanged)
   useEffect(() => {
     const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
       if (!session) {
         router.push('/'); return
       } else {
         const fetchPageData = async (user: any) => {
+            // 1. Get public user profile (FIXED QUERY)
             const { data: publicProfile, error: profileError } = await supabase
               .from('users')
-              .select('id, auth_id, full_name, avatar_url, email') 
+              .select('id, auth_id, full_name, avatar_url, email') // <-- NOW INCLUDES 'id'
               .eq('auth_id', user.id)
               .single()
 
@@ -48,6 +50,7 @@ export default function ProfilePage() {
             }
             setProfile(publicProfile)
               
+            // 2. Fetch user's skills (Unchanged)
             const { data: user_skills, error: skillsError } = await supabase
               .from('user_skills')
               .select('id, user_id, skill_name, proficiency_level')
@@ -68,6 +71,7 @@ export default function ProfilePage() {
     }
   }, [supabase, router])
 
+  // handleAddSkill, handleDeleteSkill, handleSignOut (Unchanged)
   const handleAddSkill = async () => {
     if (newSkill.trim() === '' || !profile) return
     const { data: newSkillRecord, error } = await supabase
@@ -132,6 +136,11 @@ export default function ProfilePage() {
             <p className="text-gray-600 text-sm">
               {profile?.email}
             </p>
+            {/* --- FIX: Display User ID --- */}
+            <p className="text-gray-500 text-xs mt-1">
+              **Your User ID:** <span className="font-semibold text-climby-700">{profile?.id}</span>
+            </p>
+            {/* --------------------------- */}
           </div>
         </div>
         
@@ -153,7 +162,6 @@ export default function ProfilePage() {
             placeholder="e.g., React, Python, SQL"
             className="flex-grow p-2 border rounded-md text-black"
           />
-          {/* --- FIX: High Contrast Button Style --- */}
           <button
             onClick={handleAddSkill}
             className="bg-white text-climby-600 border border-climby-500 py-2 px-4 rounded-md hover:bg-climby-50 disabled:bg-gray-400 disabled:text-white"
@@ -161,7 +169,6 @@ export default function ProfilePage() {
           >
             Add Skill
           </button>
-          {/* -------------------------------------- */}
         </div>
         {!profile && !loading && (
           <p className="text-red-500 text-sm mt-2">
