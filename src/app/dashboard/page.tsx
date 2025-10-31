@@ -24,15 +24,17 @@ export default function Dashboard() {
   // Reverting to original useEffect: Checks for session on mount
   useEffect(() => {
     const fetchUser = async () => {
-      const { data: { session, user } } = await supabase.auth.getSession()
+      // 1. Get the session first
+      const { data: { session } } = await supabase.auth.getSession()
 
       if (!session) {
         router.push('/')
       } else {
-        setUser(user)
+        // 2. If the session exists, the user object is INSIDE the session.
+        setUser(session.user) 
         setLoading(false)
       }
-    }
+  }
     fetchUser()
   }, [supabase, router])
 
