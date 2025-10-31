@@ -38,15 +38,17 @@ export default function LiveHubPage() {
   const callRequestChannelRef = useRef<any>(null)
 
   // --- 1. Function to fetch all available peers (UPDATED) ---
-  const fetchAvailablePeers = useCallback(async (myProfile: PublicUserProfile) => {
+  // Inside src/app/live/page.tsx, around line 45
+
+const fetchAvailablePeers = useCallback(async (myProfile: PublicUserProfile) => {
     if (!myProfile) return
 
     const { data, error } = await supabase
       .from('peer_availability')
       .select(`
         user_id,
-        users ( full_name, email, avatar_url ) // <-- 3. NEW: Fetch avatar_url
-      `)
+        peer_profile:user_id ( full_name, email, avatar_url ) // <-- THE FIX IS HERE
+      `) 
       .eq('is_available', true)
       .not('user_id', 'eq', myProfile.id)
 
@@ -54,7 +56,14 @@ export default function LiveHubPage() {
       console.error('Error fetching peers:', error)
       setError('Could not load available peers.')
     } else {
-      setAvailablePeers(data as AvailablePeer[])
+      // We must now cast the result to match the new name
+      // The old 'users' property will now be 'peer_profile'
+      const transformedData = data.map((item: any) => ({
+        user_id: item.user_id,
+        users: item.peer_profile, // Map the renamed property back to 'users'
+      }));
+
+      setAvailablePeers(transformedData as AvailablePeer[])
     }
   }, [supabase])
 
