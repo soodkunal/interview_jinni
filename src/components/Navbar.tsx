@@ -12,7 +12,7 @@ export default function Navbar() {
   const supabase = createClient()
   const router = useRouter()
   const [user, setUser] = useState<User | null>(null)
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false) // State for mobile menu
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false) 
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -24,13 +24,13 @@ export default function Navbar() {
 
   const handleSignOut = async () => {
     await supabase.auth.signOut()
-    router.push('/')
+    router.push('/') 
   }
 
   const avatarUrl = user?.user_metadata?.avatar_url
   
   if (!user) {
-    return null // Don't render if logged out
+    return null
   }
 
   return (
@@ -42,8 +42,8 @@ export default function Navbar() {
           {/* Logo */}
           <Link href="/dashboard" className="flex items-center space-x-2">
             <Image
-              src="/Interview_jinni_logo.png"
-              alt="Interview Jinni Logo"
+              src="/climby-logo.png"
+              alt="Climby Logo"
               width={32}
               height={32}
             />
@@ -52,17 +52,19 @@ export default function Navbar() {
             </h1>
           </Link>
           
-          {/* Desktop Nav (hidden on small screens) */}
+          {/* Desktop Nav (visible on medium screens and up) */}
           <div className="hidden md:flex items-center space-x-4">
             <Link href="/profile" className="text-gray-600 hover:text-climby-600 font-medium">
               My Profile
             </Link>
+            {/* --- FIX: Apply strong button style for visibility --- */}
             <button
               onClick={handleSignOut}
-              className="bg-climby-500 text-white py-2 px-4 rounded-md hover:bg-climby-600 transition-colors text-sm font-medium"
+              className="bg-red-600 text-white py-2 px-4 rounded-md hover:bg-red-700 transition-colors text-sm font-medium shadow-md"
             >
               Sign Out
             </button>
+            {/* --------------------------------------------------- */}
             <Link href="/profile" title="View Profile">
               <Image
                 src={avatarUrl || '/default-avatar.png'}
@@ -74,7 +76,7 @@ export default function Navbar() {
             </Link>
           </div>
 
-          {/* Mobile Menu Button (hidden on medium screens and up) */}
+          {/* Mobile Menu Button */}
           <div className="md:hidden">
             <button
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
@@ -88,7 +90,7 @@ export default function Navbar() {
 
       {/* --- Mobile Menu (Dropdown) --- */}
       {isMobileMenuOpen && (
-        <div className="md:hidden absolute bg-white w-full shadow-lg border-t border-gray-200 py-4">
+        <div className="md:hidden absolute bg-white w-full shadow-lg border-t border-gray-200 py-4 z-50">
           <div className="px-4 flex items-center mb-4">
             <Image
               src={avatarUrl || '/default-avatar.png'}
@@ -105,7 +107,7 @@ export default function Navbar() {
           <Link 
             href="/profile" 
             className="block px-4 py-2 text-gray-700 hover:bg-gray-100"
-            onClick={() => setIsMobileMenuOpen(false)} // Close menu on click
+            onClick={() => setIsMobileMenuOpen(false)} 
           >
             My Profile
           </Link>
