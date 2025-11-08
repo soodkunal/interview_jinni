@@ -42,8 +42,8 @@ export default function Navbar() {
           {/* Logo */}
           <Link href="/dashboard" className="flex items-center space-x-2">
             <Image
-              src="/climby-logo.png"
-              alt="Climby Logo"
+              src="/Interview_jinni_logo.png"
+              alt="Interview Jinni Logo"
               width={32}
               height={32}
             />
