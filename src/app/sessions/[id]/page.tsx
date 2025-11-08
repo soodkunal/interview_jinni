@@ -2,269 +2,265 @@
 
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState } from 'react'
+import { useParams } from 'next/navigation'
 
 // --- Types ---
-type JoinedUserType = {
-  full_name: string | null
-  email: string | null
+type PublicUserProfile = { id: number; auth_id: string; }
+type AnalysisFeedback = {
+  overall_score: number; overall_feedback: string;
+  question_feedback: { question: string; feedback: string }[];
+}
+type MockSession = {
+  id: number; session_date: string; ai_score: number | null; analysis_status: string | null;
+  recording_url: string | null; ai_feedback: string | null; typed_answers: Record<number, string> | null;
+  user_id: number; 
 }
 
-type PendingRequest = {
-  id: number // request id
-  created_at: string
-  session_id: number
-  mock_interview_sessions: { 
-    recording_url: string | null
-    questions_asked: any[] | null
-  }[] | null
-  // --- FINAL FIX: Make the 'users' join an array ---
-  users: JoinedUserType[] | null // <-- Now correctly marked as an array of user objects
-  // -------------------------------------------------
+// NOTE: We change the PeerFeedback type to be robust
+type PeerFeedback = {
+  id: number; peer_score: number; comments: string; created_at: string;
+  // This is the array structure the database is returning, we fix it in the fetch
+  users: { full_name: string | null; email: string | null; } | null; 
 }
 
-// Type for the session data we are interested in for rendering
-type SessionRenderData = {
-  recording_url: string | null
-  questions_asked: any[] | null
+export default function SessionDetailPage() {
+  const supabase = createClient()
+  const router = useRouter()
+  const params = useParams()
+  const { id } = params 
+
+  const [profile, setProfile] = useState<PublicUserProfile | null>(null)
+  const [session, setSession] = useState<MockSession | null>(null)
+  const [feedback, setFeedback] = useState<AnalysisFeedback | null>(null)
+  
+  const [peerReviews, setPeerReviews] = useState<PeerFeedback[]>([])
+  const [isRequesting, setIsRequesting] = useState(false)
+  const [requestStatus, setRequestStatus] = useState<string | null>(null)
+
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!id) {
+      setLoading(false); setError('No session ID provided.'); return
+    }
+
+    const fetchSessionDetails = async () => {
+      setLoading(true)
+      
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { router.push('/'); return }
+
+      const { data: publicProfile, error: profileError } = await supabase
+        .from('users').select('id, auth_id').eq('auth_id', user.id).single()
+
+      if (profileError || !publicProfile) { setError('Could not load your user profile.'); setLoading(false); return }
+      setProfile(publicProfile)
+      
+      // 1. Fetch the specific session
+      const { data: sessionData, error: sessionError } = await supabase
+        .from('mock_interview_sessions')
+        .select('*') 
+        .eq('id', id)
+        .single()
+
+      if (sessionError || !sessionData) { setError('Could not load this session.'); setLoading(false); return }
+      
+      // 2. Security Check: Ensure the user owns this session
+      if (sessionData.user_id !== publicProfile.id) {
+        setError('You do not have permission to view this session.')
+        setLoading(false); return
+      }
+      setSession(sessionData)
+      
+      // 3. Try to parse the AI feedback
+      if (sessionData.ai_feedback && sessionData.analysis_status === 'completed') {
+        try {
+          const parsedFeedback = JSON.parse(sessionData.ai_feedback)
+          setFeedback(parsedFeedback)
+        } catch (e) { console.error('Error parsing feedback JSON:', e) }
+      }
+      
+      // 4. Fetch existing peer reviews (THE FINAL FIX)
+      const { data: reviewData } = await supabase
+        .from('mock_interview_feedback')
+        .select(`
+          id, peer_score, comments, created_at,
+          reviewer_profile:reviewer_id ( full_name, email ) // <--- RENAMED THE JOIN
+        `)
+        .eq('session_id', id)
+        
+      if (reviewData) {
+        // FIX: Transform the array results to match the PeerFeedback type
+        const transformedReviews = (reviewData as any[]).map(review => ({
+            ...review,
+            users: review.reviewer_profile[0] || null // Safely access the first user object
+        }));
+        setPeerReviews(transformedReviews as PeerFeedback[])
+      }
+      
+      // 5. Check if a review has already been requested
+      const { data: requestData } = await supabase
+        .from('peer_review_requests')
+        .select('status')
+        .eq('session_id', id)
+        .eq('requester_id', publicProfile.id)
+        .limit(1)
+        
+      if (requestData && requestData.length > 0) {
+        setRequestStatus(requestData[0].status)
+      }
+      
+      setLoading(false)
+    }
+
+    fetchSessionDetails()
+  }, [supabase, router, id])
+
+  // --- Handle Request Review ---
+  const handleRequestReview = async () => {
+    if (!session || !profile || session.analysis_status !== 'completed') {
+      setError('Cannot request review: Session analysis is not complete.')
+      return
+    }
+    
+    // Check if the user is using the intended owner ID to make the request
+    if (session.user_id !== profile.id) {
+        setError('Only the session owner can request a peer review.');
+        return;
+    }
+
+    setIsRequesting(true); setError(null);
+    
+    try {
+      await supabase
+        .from('peer_review_requests')
+        .insert({
+          session_id: session.id,
+          requester_id: profile.id,
+          status: 'pending' 
+        })
+      
+      setRequestStatus('pending'); // Update UI
+      
+    } catch (err) {
+      console.error('Error creating request:', err);
+      setError('Failed to create request. Check console.');
+    } finally {
+      setIsRequesting(false);
+    }
+  }
+
+  const renderContent = () => {
+    if (loading) { return <div className="flex justify-center items-center p-8">Loading session...</div> }
+    if (error) { return <p className="text-red-500 bg-red-100 p-3 rounded-md">{error}</p> }
+    if (!session) { return <p>Session not found.</p> }
+
+    return (
+      <div className="space-y-6">
+        {/* --- 1. Session Summary --- */}
+        <div className="p-6 bg-white shadow-md rounded-lg">
+          <h2 className="text-2xl font-semibold mb-4">Session Details</h2>
+          <p><strong>Date:</strong> {new Date(session.session_date).toLocaleString()}</p>
+          <p><strong>Type:</strong> {session.recording_url ? 'Audio' : 'Text'}</p>
+          <p><strong>Status:</strong> {session.analysis_status}</p>
+          
+          {session.recording_url && (
+            <div className="mt-4">
+              <h4 className="font-semibold text-black">Your Recording:</h4>
+              <p className="text-sm text-gray-500 italic">Recording path: {session.recording_url}</p>
+              {/* Note: In a production app, we would generate a signed URL here */}
+            </div>
+          )}
+        </div>
+
+        {/* --- 2. AI Feedback --- */}
+        {feedback ? (
+          <div className="p-6 bg-white shadow-md rounded-lg space-y-4">
+            <h2 className="text-2xl font-semibold mb-2">AI Analysis</h2>
+            <div className="text-center p-6 bg-blue-50 rounded-lg">
+              <p className="text-lg font-medium text-blue-800">Overall Score</p>
+              <p className="text-6xl font-bold text-blue-600 my-2">{feedback.overall_score}<span className="text-2xl">/10</span></p>
+            </div>
+            {/* Detailed Feedback (omitted for brevity) */}
+            <div>
+              <h4 className="font-semibold text-lg text-black">Overall Feedback:</h4>
+              <p className="text-gray-700 mt-1">{feedback.overall_feedback}</p>
+            </div>
+            <div>
+              <h4 className="font-semibold text-lg text-black">Detailed Feedback:</h4>
+              <div className="space-y-3 mt-2">
+                {feedback.question_feedback.map((qf, index) => (
+                  <div key={index} className="p-3 bg-gray-100 rounded-md">
+                    <p className="font-medium text-gray-800">{qf.question}</p>
+                    <p className="text-gray-600 mt-1">{qf.feedback}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <p className="text-gray-600 p-6 bg-white shadow-md rounded-lg">
+            {session.analysis_status === 'processing' ? 'Analysis is still running...' : 'This session is not yet analyzed.'}
+          </p>
+        )}
+        
+        {/* --- 3. Peer Review Section --- */}
+        <div className="p-6 bg-white shadow-md rounded-lg">
+          <h2 className="text-2xl font-semibold mb-4">Peer Review</h2>
+          
+          {/* CRITICAL CHECK: Show button ONLY if status is COMPLETED and NO request exists */}
+          {(session.analysis_status === 'completed') && (requestStatus === null) && (peerReviews.length === 0) && (
+            <button
+              onClick={handleRequestReview}
+              disabled={isRequesting}
+              className="w-full bg-green-600 text-white py-2 px-4 rounded-md hover:bg-green-700 disabled:bg-gray-400"
+            >
+              {isRequesting ? 'Submitting Request...' : 'Request Peer Review'}
+            </button>
+          )}
+
+          {requestStatus === 'pending' && (
+            <p className="text-blue-600 font-medium">Your request is pending review.</p>
+          )}
+          
+          {/* Render peer reviews if they exist or show 'No reviews' message */}
+          {peerReviews.length > 0 ? (
+            <div className="space-y-4 mt-4">
+              {peerReviews.map(review => (
+                <div key={review.id} className="p-4 bg-gray-50 rounded-lg border">
+                  <div className="flex justify-between items-center">
+                    <h3 className="text-lg font-semibold">
+                      Review by {review.users?.full_name || review.users?.email || 'Anonymous'}
+                    </h3>
+                    <p className="text-xl font-bold text-green-700">
+                      {review.peer_score} / 10
+                    </p>
+                  </div>
+                  <p className="text-gray-700 mt-2">{review.comments}</p>
+                  <p className="text-xs text-gray-400 mt-2">
+                    Submitted on: {new Date(review.created_at).toLocaleDateString()}
+                  </p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-gray-500 italic mt-4">
+              No peer reviews have been submitted for this session yet.
+            </p>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50 p-8">
+      <div className="max-w-3xl mx-auto">
+        <a href="/sessions" className="text-blue-600 hover:underline mb-4 block">&larr; Back to all sessions</a>
+        {renderContent()}
+      </div>
+    </div>
+  )
 }
-
-// Safely gets the single session object from the array returned by the join
-const getSessionForRender = (request: PendingRequest): SessionRenderData | null => {
-  if (request.mock_interview_sessions && request.mock_interview_sessions.length > 0) {
-    return request.mock_interview_sessions[0];
-  }
-  return null;
-}
-
-
-export default function ReviewHubPage() {
-  const supabase = createClient()
-  const router = useRouter()
-  
-  const [currentUserId, setCurrentUserId] = useState<number | null>(null)
-  const [requests, setRequests] = useState<PendingRequest[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-
-  // --- SEARCH STATE ---
-  const [searchId, setSearchId] = useState('')
-  const [isSearching, setIsSearching] = useState(false)
-  const [searchedRequest, setSearchedRequest] = useState<PendingRequest | null>(null)
-  const [searchError, setSearchError] = useState<string | null>(null)
-  // ------------------------
-
-  const fetchPendingRequests = useCallback(async (myUserId: number) => {
-    setLoading(true)
-    setRequests([])
-    setSearchedRequest(null) 
-    
-    // 3. Fetch all pending requests *not* from the current user (SINGLE LINE QUERY)
-    const { data: requestData, error: requestError } = await supabase
-      .from('peer_review_requests')
-      .select(`id, created_at, session_id, mock_interview_sessions:session_id ( recording_url, questions_asked ), users:requester_id ( full_name, email )`)
-      .eq('status', 'pending')
-      .not('requester_id', 'eq', myUserId) 
-      .order('created_at', { ascending: true })
-
-    if (requestError) {
-      console.error('Error fetching requests:', requestError)
-      setError('Could not load pending requests.')
-    } else if (requestData) {
-      setRequests(requestData as PendingRequest[]) 
-    }
-    setLoading(false)
-  }, [supabase])
-  
-  // --- Search Logic (Single Line Query) ---
-  const handleSearch = async () => {
-    setSearchedRequest(null)
-    setSearchError(null)
-    setIsSearching(true)
-    
-    const id = parseInt(searchId.trim())
-    if (isNaN(id) || id <= 0) {
-      setSearchError('Please enter a valid numeric User ID.')
-      setIsSearching(false);
-      return
-    }
-    
-    if (id === currentUserId) {
-        setSearchError("You cannot review your own sessions.");
-        setIsSearching(false);
-        return
-    }
-
-    // Fetch a pending request made by the user ID (SINGLE LINE QUERY)
-    const { data: requestData, error: requestError } = await supabase
-      .from('peer_review_requests')
-      .select(`id, created_at, session_id, mock_interview_sessions:session_id ( recording_url, questions_asked ), users:requester_id ( full_name, email )`)
-      .eq('requester_id', id)
-      .eq('status', 'pending')
-      .limit(1)
-      .single() 
-
-    if (requestError || !requestData) {
-      setSearchError(`User ID ${id} found, but they have no pending review requests or you lack permission to see them.`);
-    } else {
-      setSearchedRequest(requestData as PendingRequest); // This line is now safe
-    }
-    setIsSearching(false)
-  }
-
-  // --- useEffect to load user and initial list (Unchanged) ---
-  useEffect(() => {
-    const setupPage = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
-        router.push('/'); return
-      }
-
-      const { data: publicProfile } = await supabase
-        .from('users').select('id').eq('auth_id', user.id).single()
-      
-      if (!publicProfile) { return }
-      
-      setCurrentUserId(publicProfile.id)
-      await fetchPendingRequests(publicProfile.id)
-    }
-
-    setupPage()
-  }, [supabase, router, fetchPendingRequests])
-
-  const renderContent = () => {
-    // --- Get single session object from the array for rendering ---
-    
-    // If a specific search result is active, show only that
-    if (searchedRequest) {
-      const request = searchedRequest
-      const session = getSessionForRender(request)
-      // FIX: Safely access user data from the array
-      const requester = request.users ? request.users[0] : null
-      
-      if (!session) return <p className="text-red-500 mt-4">Session data is missing for this request.</p>
-
-      return (
-        <div className="space-y-4">
-            <h2 className="text-xl font-heading font-semibold text-climby-700">Search Result</h2>
-            <a 
-              key={request.id}
-              href={`/review/${request.id}`}
-              className="block p-4 bg-white shadow-md rounded-lg hover:bg-climby-50 transition-colors border-2 border-climby-500"
-            >
-              <p className="text-lg font-semibold text-gray-800">
-                Review Request from {requester?.full_name || 'Anonymous'}
-              </p>
-              <div className="text-sm text-gray-500 mt-2 flex space-x-4">
-                <span>
-                  Submitted: {new Date(request.created_at).toLocaleDateString()}
-                </span>
-                <span>
-                  Type: {session?.recording_url ? 'Audio' : 'Text'}
-                </span>
-                <span>
-                  Questions: {session?.questions_asked?.length || 0}
-                </span>
-              </div>
-              <p className="mt-2 text-sm text-climby-600 font-medium">Click to start review</p>
-            </a>
-            <button 
-                onClick={() => setSearchedRequest(null)}
-                className="text-gray-500 text-sm hover:underline mt-4"
-            >
-                &larr; View full list
-            </button>
-        </div>
-      )
-    }
-
-
-    if (loading) {
-      return <div className="flex justify-center items-center p-8">Loading requests...</div>
-    }
-    
-    if (error) {
-      return <p className="text-red-500 bg-red-100 p-3 rounded-md">{error}</p>
-    }
-
-    if (requests.length === 0) {
-      return (
-        <div className="text-center p-8 bg-gray-50 rounded-lg">
-          <h2 className="text-xl font-medium text-gray-700">No Pending Reviews</h2>
-          <p className="text-gray-500 mt-2">
-            Looks like you're all caught up! There are no pending peer reviews from other students.
-          </p>
-        </div>
-      )
-    }
-
-    // Render Full List
-    return (
-      <div className="space-y-4">
-        {requests.map((request) => {
-          const session = getSessionForRender(request)
-          const requester = request.users ? request.users[0] : null
-          
-          return (
-            <a 
-              key={request.id}
-              href={`/review/${request.id}`}
-              className="block p-4 bg-white shadow-md rounded-lg hover:bg-gray-50 transition-colors"
-            >
-              <p className="text-lg font-semibold text-gray-800">
-                Review Request from {requester?.full_name || 'Anonymous'}
-              </p>
-              <div className="text-sm text-gray-500 mt-2 flex space-x-4">
-                <span>
-                  Submitted: {new Date(request.created_at).toLocaleDateString()}
-                </span>
-                <span>
-                  Type: {session?.recording_url ? 'Audio' : 'Text'}
-                </span>
-                <span>
-                  Questions: {session?.questions_asked?.length || 0}
-                </span>
-              </div>
-            </a>
-          )
-        })}
-      </div>
-    )
-  }
-
-  return (
-    <div className="min-h-screen bg-gray-50 p-8">
-      <div className="max-w-3xl mx-auto">
-        <h1 className="text-3xl font-bold font-heading mb-6">Peer Review Hub</h1>
-        <p className="text-gray-600 mb-6">
-          Help your peers! Select a pending request to submit your feedback, or search by User ID.
-        </p>
-        
-        {/* --- NEW SEARCH INPUT --- */}
-        <div className="mb-8 p-4 bg-white shadow-md rounded-lg">
-          <h2 className="text-xl font-heading font-semibold mb-2">Search by Requester ID</h2>
-          <div className="flex space-x-2">
-            <input
-              type="text"
-              placeholder="Enter Requester's User ID (e.g., 1001)"
-              value={searchId}
-              onChange={(e) => setSearchId(e.target.value)}
-              className="flex-grow p-2 border rounded-md text-black"
-            />
-            <button
-              onClick={handleSearch}
-              disabled={isSearching}
-              className="bg-white text-climby-600 border border-climby-500 py-2 px-4 rounded-md hover:bg-climby-50 disabled:bg-gray-400 disabled:text-white"
-            >
-              {isSearching ? 'Searching...' : 'Search'}
-            </button>
-          </div>
-          {searchError && <p className="text-red-500 mt-2 text-sm">{searchError}</p>}
-        </div>
-        {/* ------------------------ */}
-        
-        {renderContent()}
-      </div>
-    </div>
-  )
-} 
