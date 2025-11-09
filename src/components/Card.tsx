@@ -1,16 +1,16 @@
 import React from 'react'
 
-// This component is a simple wrapper to make all our cards look consistent
 export default function Card({ 
   children, 
-  className = '' // <-- Fix: Should be className, not className_
+  className = '' 
 }: { 
   children: React.ReactNode, 
-  className?: string // <-- Fix: Should be className, not className_
+  className?: string 
 }) {
   return (
+    // Updated default styling for transitions and dark background
     <div 
-      className={`bg-white shadow-md rounded-lg p-6 ${className}`} // <-- Fix: Should use className
+      className={`bg-background-card shadow-md rounded-xl p-6 transition-all duration-300 ${className}`}
     >
       {children}
     </div>

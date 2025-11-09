@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import Image from 'next/image'
+// import Button from '@/components/Button' // <-- We are removing this component dependency
 
 export default function Home() {
   const supabase = createClient()
@@ -52,7 +53,7 @@ export default function Home() {
         
         {/* Logo and Title */}
         <Image
-          src="/Interview_jinni_logo.png"
+          src="/Interview_jinni_logo.png" // Use the consistent internal name
           alt="Interview Jinni Logo"
           width={80}
           height={80}
@@ -62,14 +63,16 @@ export default function Home() {
           Interview Jinni
         </h1>
 
-        {/* --- FINAL FIX: Added !text-white to force visibility --- */}
+        {/* --- FINAL FIX: Universal Style Override (Inlined CSS) --- */}
         <button
           onClick={handleSignIn}
-          className="btn-primary" // <-- Use our new, fixed class
+          // Use hardcoded colors and a dark border to guarantee visibility
+          style={{ backgroundColor: '#0284c7', color: 'white', borderColor: '#0c4a6e', borderWidth: '1px' }} 
+          className="w-full py-2 px-4 rounded-md transition-colors shadow-md font-medium"
         >
-          Sign in with Google
+          Sign in / Sign up with Google
         </button>
-        {/* ------------------------------------------------ */}
+        {/* --------------------------------------------------------- */}
       </div>
     </div>
   )

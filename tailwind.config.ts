@@ -8,29 +8,31 @@ const config: Config = {
   ],
   theme: {
     extend: {
-      // 1. Add our custom fonts
       fontFamily: {
         sans: ['var(--font-inter)', 'system-ui', 'sans-serif'],
         heading: ['var(--font-poppins)', 'system-ui', 'sans-serif'],
       },
-      // 2. Add our custom "Climby" color palette
       colors: {
         climby: {
           '50': '#f0f9ff',
           '100': '#e0f2fe',
-          '200': '#bae6fd',
-          '300': '#7dd3fc',
-          '400': '#38bdf8',
-          '500': '#0ea5e9', // Our main brand color
+          // ... (existing blues)
+          '500': '#0ea5e9', 
           '600': '#0284c7',
           '700': '#0369a1',
           '800': '#075985',
           '900': '#0c4a6e',
         },
+        background: { // Custom Dark Background Colors
+          dark: '#0f172a', // Main dark background
+          card: '#1e293b', // Dark card background
+        },
       },
+      boxShadow: {
+        '3xl': '0 35px 60px -15px rgba(0, 0, 0, 0.5)', // Deep shadow for lifted effect
+      }
     },
   },
-  // 3. Add the forms plugin
   plugins: [require('@tailwindcss/forms')],
 }
 export default config
